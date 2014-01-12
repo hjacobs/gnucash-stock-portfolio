@@ -1,0 +1,3 @@
+ystockquote
+beautifulsoup4
+requests
