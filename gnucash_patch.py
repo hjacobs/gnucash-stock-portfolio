@@ -11,8 +11,11 @@ from gnucash.function_class import ClassFromFunctions
 from gnucash import Session, GncPrice, GncNumeric
 
 
-def create_price(self, book):
-    price_instance = gnucash.gnucash_core_c.gnc_price_create(book.get_instance())
+def create_price(self, book=None, instance=None):
+    if instance:
+        price_instance = instance
+    else:
+        price_instance = gnucash.gnucash_core_c.gnc_price_create(book.get_instance())
     ClassFromFunctions.__init__(self, instance=price_instance)
 
 

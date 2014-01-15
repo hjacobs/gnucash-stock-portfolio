@@ -7,7 +7,7 @@ import logging
 import requests
 
 from bs4 import BeautifulSoup
-from gnucash import Session, GncNumeric
+from gnucash import Session, GncNumeric, ACCT_TYPE_STOCK
 from gnucash_patch import GncPrice
 
 
@@ -41,7 +41,7 @@ def update_quote(commodity, book):
     logging.info('Processing %s (%s, %s)..', fullname, mnemonic, isin)
     value, currency = None, None
     try:
-        if name == 'BOND':
+        if commodity.get_namespace() == 'BOND':
             value, currency = get_quote_onvista_bond(isin)
         else:
             value, currency = get_quote_onvista_stock(isin)
@@ -58,17 +58,7 @@ def update_quote(commodity, book):
         book.get_price_db().add_price(p)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('gnucash_file')
-parser.add_argument('--dry-run', action='store_true', help='Do not write anything, noop-mode')
-
-args = parser.parse_args()
-
-logging.basicConfig(level=logging.INFO)
-logging.getLogger('urllib3').setLevel(logging.WARN)
-
-s = Session(args.gnucash_file)
-try:
+def update_quotes(s, args):
     book = s.book
     table = book.get_table()
     for namespace in table.get_namespaces_list():
@@ -78,5 +68,49 @@ try:
                 update_quote(commodity, book)
     if not args.dry_run:
         s.save()
+
+
+def report(s, args):
+    book = s.book
+    table = book.get_table()
+    pricedb = book.get_price_db()
+    # FIXME: hard-coded currency
+    currency_code = 'EUR'
+    currency = table.lookup('ISO4217', currency_code)
+    account = book.get_root_account()
+    for acc in account.get_descendants():
+        if acc.GetType() == ACCT_TYPE_STOCK:
+            commodity = acc.GetCommodity()
+            namespace = commodity.get_namespace()
+            if namespace != 'CURRENCY':
+                print commodity.get_fullname(), commodity.get_cusip(), acc.GetBalance()
+                inst = pricedb.lookup_latest(commodity, currency).get_value()
+                print GncNumeric(instance=inst).to_string()
+
+
+def add_commodity(s, args):
+    raise NotImplementedError()
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('gnucash_file')
+parser.add_argument('--dry-run', action='store_true', help='Do not write anything, noop-mode')
+subparsers = parser.add_subparsers()
+sp = subparsers.add_parser('update-quotes', help='Update stock quotes from online service')
+sp.set_defaults(func=update_quotes)
+sp = subparsers.add_parser('report', help='Print portfolio report')
+sp.set_defaults(func=report)
+sp = subparsers.add_parser('add-commodity', help='Helper method to add commodity by ISIN')
+sp.add_argument('isin', help='ISIN of stock/bond to add')
+sp.set_defaults(func=add_commodity)
+
+args = parser.parse_args()
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger('urllib3').setLevel(logging.WARN)
+
+s = Session(args.gnucash_file)
+try:
+    args.func(s, args)
 finally:
     s.end()
